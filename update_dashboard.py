@@ -14,7 +14,9 @@ import subprocess
 import sys
 import urllib.request
 import urllib.error
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+
+JST = timezone(timedelta(hours=9))
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -79,7 +81,7 @@ def main():
             "revenue_usd": gumroad["revenue_usd"],
         })
 
-    updated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    updated_at = datetime.now(JST).strftime("%Y-%m-%d %H:%M")
     html = render_html(rows, updated_at)
 
     out_path = os.path.join(SCRIPT_DIR, "index.html")
@@ -194,7 +196,7 @@ def render_html(rows: list, updated_at: str) -> str:
 <div class="wrap">
   <div class="page-head">
     <h1>アプリ実績ダッシュボード</h1>
-    <div class="updated">最終更新: {updated_at}（1時間おきに自動更新）</div>
+    <div class="updated">最終更新: {updated_at}（日本時間・1時間おきに自動更新）</div>
   </div>
   {"".join(cards)}
 </div>
