@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 apps.json に列挙された各アプリについて、GitHub Releasesのダウンロード数と
-Gumroadの売上を取得し、dashboard.html（Artifact公開用のcontent-onlyフラグメント）を生成する。
+Gumroadの売上を取得し、index.html（GitHub Pagesでそのまま公開する完全なHTML文書）を生成する。
 
 使い方: GUMROAD_ACCESS_TOKEN=xxx python3 update_dashboard.py
 （GitHub側は `gh` コマンドの認証をそのまま使う）
@@ -82,7 +82,7 @@ def main():
     updated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     html = render_html(rows, updated_at)
 
-    out_path = os.path.join(SCRIPT_DIR, "dashboard.html")
+    out_path = os.path.join(SCRIPT_DIR, "index.html")
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"書き出しました: {out_path}")
@@ -124,7 +124,14 @@ def render_html(rows: list, updated_at: str) -> str:
           </div>
         </div>""")
 
-    return f"""<style>
+    return f"""<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>アプリ実績ダッシュボード</title>
+<meta name="robots" content="noindex">
+<style>
   :root {{
     color-scheme: light dark;
     --bg: #f7f6f2;
@@ -182,6 +189,8 @@ def render_html(rows: list, updated_at: str) -> str:
   }}
   .stat-value.accent {{ color: var(--accent); }}
 </style>
+</head>
+<body>
 <div class="wrap">
   <div class="page-head">
     <h1>アプリ実績ダッシュボード</h1>
@@ -189,6 +198,8 @@ def render_html(rows: list, updated_at: str) -> str:
   </div>
   {"".join(cards)}
 </div>
+</body>
+</html>
 """
 
 
