@@ -15,6 +15,7 @@ import sys
 import urllib.request
 import urllib.error
 from datetime import datetime, timezone, timedelta
+from typing import Optional
 
 JST = timezone(timedelta(hours=9))
 
@@ -34,6 +35,33 @@ def fetch_github_downloads(owner: str, repo: str) -> int:
             if asset["name"].endswith(".dmg"):
                 total += asset["download_count"]
     return total
+
+
+HISTORY_PATH = os.path.join(SCRIPT_DIR, "history.json")
+
+
+def load_history() -> dict:
+    if not os.path.exists(HISTORY_PATH):
+        return {}
+    with open(HISTORY_PATH, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_history(history: dict) -> None:
+    with open(HISTORY_PATH, "w", encoding="utf-8") as f:
+        json.dump(history, f, ensure_ascii=False, indent=2)
+
+
+def append_history(history: dict, app_name: str, downloads: int, now: datetime) -> None:
+    history.setdefault(app_name, []).append({"ts": now.isoformat(), "downloads": downloads})
+
+
+def downloads_as_of(entries: list, target: datetime) -> Optional[int]:
+    """target時点以前で一番新しいスナップショットのダウンロード数を返す。無ければNone（収集期間中）"""
+    candidates = [e for e in entries if datetime.fromisoformat(e["ts"]) <= target]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda e: e["ts"])["downloads"]
 
 
 def fetch_gumroad_stats(product_id: str, token: str) -> dict:
@@ -61,6 +89,9 @@ def main():
     with open(os.path.join(SCRIPT_DIR, "apps.json"), encoding="utf-8") as f:
         apps = json.load(f)
 
+    now = datetime.now(JST)
+    history = load_history()
+
     rows = []
     for app in apps:
         try:
@@ -73,15 +104,32 @@ def main():
         except Exception as e:
             print(f"WARN: {app['name']}のGumroadデータ取得に失敗: {e}", file=sys.stderr)
             gumroad = {"sales_count": 0, "revenue_usd": 0}
+
+        # 取得できた時だけ履歴に記録する（取得失敗時にNoneを記録して推移を汚さないため）
+        if downloads is not None:
+            append_history(history, app["name"], downloads, now)
+
+        # 「14日前時点のダウンロード数」−「現在の購入数」で、トライアルが切れて未購入のままの
+        # 概算数を出す。個々のユーザーのトライアル開始日は追跡していないための近似値であり、
+        # 履歴が14日分溜まるまではNone（収集中）になる
+        downloads_14d_ago = downloads_as_of(history.get(app["name"], []), now - timedelta(days=14))
+        expired_without_purchase = (
+            max(0, downloads_14d_ago - gumroad["sales_count"])
+            if downloads_14d_ago is not None else None
+        )
+
         rows.append({
             "name": app["name"],
             "gumroad_product_url": app.get("gumroad_product_url", "#"),
             "downloads": downloads,
             "sales_count": gumroad["sales_count"],
             "revenue_usd": gumroad["revenue_usd"],
+            "expired_without_purchase": expired_without_purchase,
         })
 
-    updated_at = datetime.now(JST).strftime("%Y-%m-%d %H:%M")
+    save_history(history)
+
+    updated_at = now.strftime("%Y-%m-%d %H:%M")
     html = render_html(rows, updated_at)
 
     out_path = os.path.join(SCRIPT_DIR, "index.html")
@@ -99,6 +147,10 @@ def render_html(rows: list, updated_at: str) -> str:
         conversion = (
             f"{r['sales_count'] / r['downloads'] * 100:.1f}%"
             if r["downloads"] else "—"
+        )
+        expired_display = (
+            fmt(r["expired_without_purchase"])
+            if r["expired_without_purchase"] is not None else "収集中"
         )
         cards.append(f"""
         <div class="app-card">
@@ -122,6 +174,10 @@ def render_html(rows: list, updated_at: str) -> str:
             <div class="stat">
               <div class="stat-label">無料→有料転換率</div>
               <div class="stat-value">{conversion}</div>
+            </div>
+            <div class="stat" title="14日前時点のダウンロード数から、現在の購入数を引いた概算値です（個々のユーザーのトライアル開始日は追跡していないため近似値）">
+              <div class="stat-label">未購入（概算）</div>
+              <div class="stat-value">{expired_display}</div>
             </div>
           </div>
         </div>""")
